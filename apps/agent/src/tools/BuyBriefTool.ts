@@ -71,6 +71,18 @@ export async function buyBrief(input: BriefInput, opts: BuyBriefOptions = {}): P
   const operatorId: string = operatorIdRaw
   const escrowId: string = escrowIdRaw
 
+  // Collect every audit write here so we can await them all before returning.
+  // Each entry resolves once HCS reaches consensus on the message; we don't
+  // block the user-visible critical path on them — we only block return.
+  const auditPromises: Promise<unknown>[] = []
+  const queueAudit = (p: Promise<string>, label: string): void => {
+    auditPromises.push(
+      p
+        .then((ref) => emit({ stage: 'audit', topic: process.env.HCS_AUDIT_TOPIC!, ref }))
+        .catch((err) => console.error(`[buyBrief] audit (${label}) failed:`, err)),
+    )
+  }
+
   // 1. Autonomous decision: depth
   const depth = decideDepth(input.topic)
   emit({
@@ -79,15 +91,16 @@ export async function buyBrief(input: BriefInput, opts: BuyBriefOptions = {}): P
     reason: `topic ambiguity → ${depth}; budget conservative`,
   })
 
-  // Async fire-and-forget audit: intent logged at the start
-  writeAuditEvent({
-    eventType: 'intent_logged',
-    requestId,
-    params: { topic: input.topic, depth, email_hash: sha(input.email) },
-    decisionTrace: `depth=${depth}`,
-  })
-    .then((ref) => emit({ stage: 'audit', topic: process.env.HCS_AUDIT_TOPIC!, ref }))
-    .catch((err) => console.error('[buyBrief] audit (intent) failed:', err))
+  // Intent logged at the start — fire async, awaited at the end.
+  queueAudit(
+    writeAuditEvent({
+      eventType: 'intent_logged',
+      requestId,
+      params: { topic: input.topic, depth, email_hash: sha(input.email) },
+      decisionTrace: `depth=${depth}`,
+    }),
+    'intent',
+  )
 
   // 2. CHARGE — fires the full V4 policy chain on transfer_hbar_tool
   const charge = await transferHbarViaKit({
@@ -168,23 +181,46 @@ export async function buyBrief(input: BriefInput, opts: BuyBriefOptions = {}): P
     txOutput: release.hashScanUrl ?? release.txId ?? '',
     reason: release.error,
   })
+  // Audit the release tx separately so HCS records every on-chain action
+  // (the kit's built-in hook only logs charges; release/refund sign with the
+  // escrow key and bypass the kit's lifecycle).
+  if (release.ok && release.txId) {
+    queueAudit(
+      writeAuditEvent({
+        eventType: 'release_executed',
+        requestId,
+        params: {
+          tinybars: Math.round(PER_BRIEF_HBAR * 100_000_000),
+          recipient: operatorId,
+        },
+        txIds: [release.txId],
+      }),
+      'release',
+    )
+  }
 
   // 7. Final audit event
-  writeAuditEvent({
-    eventType: 'decision_complete',
-    requestId,
-    params: {
-      topic: input.topic,
-      depth,
-      email_hash: sha(input.email),
-      provider: brief.provider,
-      brief_chars: brief.text.length,
-      resend_message_id: emailResult.messageId,
-      local_24h_spend_tinybars: getLocalRolling24hSpend(),
-    },
-  })
-    .then((ref) => emit({ stage: 'audit', topic: process.env.HCS_AUDIT_TOPIC!, ref }))
-    .catch((err) => console.error('[buyBrief] audit (final) failed:', err))
+  queueAudit(
+    writeAuditEvent({
+      eventType: 'decision_complete',
+      requestId,
+      params: {
+        topic: input.topic,
+        depth,
+        email_hash: sha(input.email),
+        provider: brief.provider,
+        brief_chars: brief.text.length,
+        resend_message_id: emailResult.messageId,
+        local_24h_spend_tinybars: getLocalRolling24hSpend(),
+      },
+    }),
+    'final',
+  )
+
+  // Block return until every audit has reached HCS consensus. This guarantees
+  // the topic always shows the full {intent, charge, release, complete} chain
+  // before we surface the result to the caller (or close the process).
+  await Promise.allSettled(auditPromises)
 
   return {
     requestId,
@@ -212,12 +248,22 @@ export async function buyBrief(input: BriefInput, opts: BuyBriefOptions = {}): P
       reason: refund.error,
     })
 
-    writeAuditEvent({
-      eventType: 'refund_issued',
-      requestId,
-      params: { topic: input.topic, label, error: reason.slice(0, 240) },
-    }).catch((e) => console.error('[buyBrief] audit refund failed:', e))
+    queueAudit(
+      writeAuditEvent({
+        eventType: 'refund_issued',
+        requestId,
+        params: {
+          topic: input.topic,
+          label,
+          error: reason.slice(0, 240),
+          tinybars: Math.round(PER_BRIEF_HBAR * 100_000_000),
+        },
+        txIds: refund.txId ? [refund.txId] : undefined,
+      }),
+      'refund',
+    )
 
+    await Promise.allSettled(auditPromises)
     return { requestId, ok: false, steps, reason }
   }
 }
