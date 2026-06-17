@@ -28,7 +28,9 @@
   },
   "devDependencies": {
     "@hashgraph/hedera-agent-kit": "^4.0.0",
+    "@hashgraph/hedera-agent-kit-langchain": "^1.0.0",
     "@hashgraph/sdk": "^2.49.0",
+    "@hiero-ledger/sdk": "^2.85.0",
     "@types/node": "^22.10.0",
     "dotenv": "^16.4.5",
     "prettier": "^3.2.5",
