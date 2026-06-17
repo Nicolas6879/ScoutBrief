@@ -1,0 +1,38 @@
+{
+  "name": "@scoutbrief/agent",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "lint": "echo 'no lint configured'"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "@hashgraph/sdk": "^2.49.0",
+    "@langchain/community": "^0.3.0",
+    "@langchain/core": "^0.3.0",
+    "@langchain/google-genai": "^0.1.0",
+    "@langchain/groq": "^0.1.2",
+    "@scoutbrief/shared": "workspace:*",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.2.0",
+    "@hashgraph/hedera-agent-kit": "^4.0.0",
+    "langchain": "^0.3.0",
+    "node-fetch": "^3.3.2",
+    "resend": "^4.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
+  }
+}

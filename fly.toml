@@ -1,0 +1,50 @@
+# Fly.io deployment config — backend monorepo (agent + facilitator)
+# Filled in further during M3.6 deploy. Persistent volume for SQLite.
+
+app = "scoutbrief"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  AGENT_PORT = "3001"
+  FACILITATOR_PORT = "3002"
+
+[[mounts]]
+  source = "scoutbrief_data"
+  destination = "/data"
+
+[[services]]
+  internal_port = 3001
+  protocol = "tcp"
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [services.concurrency]
+    type = "requests"
+    soft_limit = 50
+    hard_limit = 100
+
+[checks]
+  [checks.health]
+    type = "http"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "get"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

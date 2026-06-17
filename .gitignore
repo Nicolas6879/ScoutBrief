@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+.next/
+.turbo/
+*.tsbuildinfo
+
+# Environment variables (NEVER commit secrets)
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Claude Code internal
+.claude/
+
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+data/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Fly.io
+.fly/
+
+# Temporary
+tmp/
+.cache/

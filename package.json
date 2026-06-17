@@ -1,0 +1,39 @@
+{
+  "name": "scoutbrief",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Policy-governed AI agent that delivers VC intelligence briefs via x402+HBAR on Hedera testnet",
+  "license": "MIT",
+  "author": "Nicolas6879",
+  "homepage": "https://github.com/Nicolas6879/ScoutBrief",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Nicolas6879/ScoutBrief.git"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "setup": "tsx scripts/setup-testnet.ts",
+    "hash:endpoints": "tsx scripts/compute-endpoint-hashes.ts",
+    "build": "pnpm -r build",
+    "dev:agent": "pnpm --filter @scoutbrief/agent dev",
+    "dev:facilitator": "pnpm --filter @scoutbrief/facilitator dev",
+    "dev:console": "pnpm --filter @scoutbrief/console dev",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "@hashgraph/hedera-agent-kit": "^4.0.0",
+    "@hashgraph/sdk": "^2.49.0",
+    "@types/node": "^22.10.0",
+    "dotenv": "^16.4.5",
+    "prettier": "^3.2.5",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.5"
+  },
+  "packageManager": "pnpm@9.0.0"
+}

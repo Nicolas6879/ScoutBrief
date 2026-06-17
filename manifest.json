@@ -1,0 +1,50 @@
+{
+  "name": "ScoutBrief",
+  "version": "1.0.0",
+  "description": "Policy-governed AI agent that delivers VC intelligence briefs via real x402+HBAR purchases of Tavily search and Resend email.",
+  "author": { "name": "Nicolas", "github": "Nicolas6879" },
+  "endpoints": {
+    "demo": "https://scoutbrief.vercel.app",
+    "api": "https://scoutbrief.fly.dev",
+    "console": "https://scoutbrief.vercel.app/console",
+    "manifest": "https://scoutbrief.fly.dev/manifest"
+  },
+  "hederaAgentKit": { "version": "4.x", "language": "javascript" },
+  "policies": {
+    "manifestTopicId": "TBD",
+    "auditTopicId": "TBD",
+    "hooks": ["auditLogHook", "settlementHook"],
+    "policies": [
+      "counterpartyAllowlistPolicy",
+      "spendLimitPolicy",
+      "contextualApprovalPolicy"
+    ],
+    "briefCategoriesCovered": ["spend_limits", "counterparties", "contextual_approval"]
+  },
+  "payments": {
+    "currencies": ["HBAR"],
+    "network": "hedera-testnet",
+    "x402Facilitator": "https://scoutbrief.fly.dev/x402"
+  },
+  "thirdPartyServices": [
+    {
+      "name": "Tavily",
+      "endpoint": "https://api.tavily.com/search",
+      "purpose": "web research"
+    },
+    {
+      "name": "Resend",
+      "endpoint": "https://api.resend.com/emails",
+      "purpose": "email delivery"
+    }
+  ],
+  "llm": {
+    "primary": "Groq Llama 3.1 70b",
+    "fallback": "Google Gemini 2.0 Flash"
+  },
+  "category": "research-intel",
+  "indexable": true,
+  "openSourced": true,
+  "license": "MIT",
+  "repository": "https://github.com/Nicolas6879/ScoutBrief"
+}
