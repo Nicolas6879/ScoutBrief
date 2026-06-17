@@ -22,6 +22,21 @@ import { buyBrief, type BriefStep } from './tools/BuyBriefTool.js'
 const app = express()
 app.use(express.json({ limit: '64kb' }))
 
+// CORS — permissive for dev + production demo URL.
+// Console runs on :3000 locally and on Vercel in production; both need to call
+// this agent server. We don't expose secrets to clients, so a wide allowlist
+// is acceptable; we still throttle via express-rate-limit below.
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept')
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(204)
+    return
+  }
+  next()
+})
+
 const briefLimiter = rateLimit({
   windowMs: 60_000,
   max: 10,
