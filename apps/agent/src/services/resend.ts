@@ -20,16 +20,29 @@ function getClient(): Resend {
   return cached
 }
 
-export interface ResendResult {
-  messageId: string
-  ms: number
-}
+export type ResendOutcome =
+  | { delivered: true; messageId: string; ms: number }
+  | { delivered: false; skipped: true; reason: string }
 
 export async function sendBriefEmail(args: {
   to: string
   topic: string
   markdown: string
-}): Promise<ResendResult> {
+}): Promise<ResendOutcome> {
+  // Free-tier guard: when no domain is verified, Resend rejects any recipient
+  // other than the account owner. Instead of letting that round-trip fail and
+  // trigger a refund, we short-circuit BEFORE the API call. The brief still
+  // gets surfaced inline in the UI in all cases.
+  const verified = (process.env.RESEND_VERIFIED_DOMAIN ?? '').toLowerCase() === 'true'
+  const owner = process.env.OWNER_EMAIL?.trim().toLowerCase()
+  if (!verified && owner && args.to.trim().toLowerCase() !== owner) {
+    return {
+      delivered: false,
+      skipped: true,
+      reason: `email skipped: domain not verified on Resend; delivery limited to ${owner}`,
+    }
+  }
+
   const start = Date.now()
   const resp = await getClient().emails.send({
     from: process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev',
@@ -45,7 +58,7 @@ export async function sendBriefEmail(args: {
   if (!resp.data?.id) {
     throw new Error('Resend returned no message id')
   }
-  return { messageId: resp.data.id, ms: Date.now() - start }
+  return { delivered: true, messageId: resp.data.id, ms: Date.now() - start }
 }
 
 /** Minimal markdown → HTML conversion sufficient for plain briefs. */

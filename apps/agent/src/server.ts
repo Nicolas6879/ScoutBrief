@@ -114,6 +114,7 @@ app.post('/agent/stream', briefLimiter, async (req: Request, res: Response) => {
       requestId: result.requestId,
       emailMessageId: result.emailMessageId,
       briefChars: result.briefMarkdown?.length,
+      briefMarkdown: result.briefMarkdown,
       policyName: result.policyName,
       reason: result.reason,
     })

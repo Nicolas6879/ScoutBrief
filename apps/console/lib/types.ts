@@ -9,6 +9,7 @@ export type BriefStep =
   | { stage: 'tavily'; count: number; ms: number }
   | { stage: 'synth'; provider: 'groq' | 'gemini'; chars: number; ms: number }
   | { stage: 'resend'; messageId: string; ms: number }
+  | { stage: 'email_skipped'; reason: string }
   | { stage: 'release'; ok: boolean; txOutput?: string; reason?: string }
   | { stage: 'refund'; ok: boolean; txOutput?: string; reason?: string }
   | { stage: 'audit'; topic: string; ref: string }
@@ -20,6 +21,7 @@ export interface DoneEvent {
   requestId: string
   emailMessageId?: string
   briefChars?: number
+  briefMarkdown?: string
   policyName?: string
   reason?: string
 }

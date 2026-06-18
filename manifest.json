@@ -1,7 +1,7 @@
 {
   "name": "ScoutBrief",
   "version": "1.0.0",
-  "description": "Policy-governed AI agent that delivers VC intelligence briefs via real x402+HBAR purchases of Tavily search and Resend email.",
+  "description": "Reference implementation of the Hedera Agent Kit V4 Hooks & Policies pattern: spend caps, counterparty allowlists, contextual approval, and HCS-2 audit applied to a demo agent that buys real third-party APIs in HBAR. Fork the pattern for multi-tenant SaaS budget governance, regulated agent workflows, or A2A marketplaces.",
   "author": { "name": "Nicolas", "github": "Nicolas6879" },
   "endpoints": {
     "demo": "https://scoutbrief.vercel.app",
@@ -42,7 +42,7 @@
     "primary": "Groq Llama 3.1 70b",
     "fallback": "Google Gemini 2.0 Flash"
   },
-  "category": "research-intel",
+  "category": "reference-implementation",
   "indexable": true,
   "openSourced": true,
   "license": "MIT",

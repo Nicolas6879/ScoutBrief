@@ -37,6 +37,7 @@ export type BriefStep =
   | { stage: 'tavily'; count: number; ms: number }
   | { stage: 'synth'; provider: 'groq' | 'gemini'; chars: number; ms: number }
   | { stage: 'resend'; messageId: string; ms: number }
+  | { stage: 'email_skipped'; reason: string }
   | { stage: 'release'; ok: boolean; txOutput?: string; reason?: string }
   | { stage: 'refund'; ok: boolean; txOutput?: string; reason?: string }
   | { stage: 'audit'; topic: string; ref: string }
@@ -156,15 +157,20 @@ export async function buyBrief(input: BriefInput, opts: BuyBriefOptions = {}): P
     return await fail(err, 'synth failed')
   }
 
-  // 5. RESEND
-  let emailResult: Awaited<ReturnType<typeof sendBriefEmail>>
+  // 5. RESEND — graceful skip when domain not verified (still returns brief inline)
+  let emailMessageId: string | undefined
   try {
-    emailResult = await sendBriefEmail({
+    const outcome = await sendBriefEmail({
       to: input.email,
       topic: input.topic,
       markdown: brief.text,
     })
-    emit({ stage: 'resend', messageId: emailResult.messageId, ms: emailResult.ms })
+    if (outcome.delivered) {
+      emailMessageId = outcome.messageId
+      emit({ stage: 'resend', messageId: outcome.messageId, ms: outcome.ms })
+    } else {
+      emit({ stage: 'email_skipped', reason: outcome.reason })
+    }
   } catch (err) {
     return await fail(err, 'resend failed')
   }
@@ -210,7 +216,7 @@ export async function buyBrief(input: BriefInput, opts: BuyBriefOptions = {}): P
         email_hash: sha(input.email),
         provider: brief.provider,
         brief_chars: brief.text.length,
-        resend_message_id: emailResult.messageId,
+        resend_message_id: emailMessageId ?? 'skipped',
         local_24h_spend_tinybars: getLocalRolling24hSpend(),
       },
     }),
@@ -227,7 +233,7 @@ export async function buyBrief(input: BriefInput, opts: BuyBriefOptions = {}): P
     ok: true,
     steps,
     briefMarkdown: brief.text,
-    emailMessageId: emailResult.messageId,
+    emailMessageId,
   }
 
   /** Internal failure handler: refund the charge, return structured result. */

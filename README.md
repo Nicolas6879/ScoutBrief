@@ -1,6 +1,6 @@
 # ScoutBrief
 
-> Policy-governed AI agent that delivers VC intelligence briefs via real x402+HBAR purchases of Tavily search and Resend email — on Hedera testnet.
+> **Reference implementation of the Hedera Agent Kit V4 Hooks & Policies pattern.** Spend caps, counterparty allowlists, contextual approval, and on-chain audit — applied to a demo agent that buys real third-party APIs in HBAR.
 
 **Hedera AI Bounty Week 5 submission** — *Hedera Policy Agent*
 
@@ -8,9 +8,20 @@
 
 ---
 
-## What it does
+## What this is (and what it isn't)
 
-Dana, a VC analyst, types `Brief on Anthropic, send to my-email@x.com`. ScoutBrief reasons over the request, picks brief depth (lite/standard/deep), pays Tavily and Resend in HBAR via x402, delivers a 1-page intelligence brief to her inbox, and anchors every decision to an HCS-2 audit topic — all within Hedera Agent Kit V4 Hooks and Policies that constrain spending, allowed counterparties, and require contextual approval before settlement.
+This is **infrastructure for Hedera agent builders**, not a consumer product.
+
+The end-user-visible demo is an intelligence-brief agent: type a startup name + email, it pays a small HBAR amount to escrow, searches Tavily, synthesizes a markdown brief via Groq (Llama 3.3 70b) with Gemini fallback, surfaces the brief inline + best-effort email, and releases (or refunds) the escrow — all gated by the V4 policy chain.
+
+But the **reusable artifact** is the pattern itself: three blocking policies, two non-blocking hooks, an escrow-signed settlement path, and an HCS-2 audit topic that any other Hedera agent purchasing external APIs can fork to add the same compliance properties. Real-world fits:
+
+- **Multi-tenant SaaS** with per-tenant API budgets that must be auditable by finance
+- **Regulated workflows** (legal discovery, KYC/AML, pharma research) where every external call needs an immutable provenance trail
+- **A2A marketplaces** where one agent pays another and neither side trusts the other to audit honestly
+- **Compliance-as-a-service** layers that gate agent spend on behalf of human principals
+
+The intelligence-brief flow is the *demo* of the pattern; the pattern is the *product*.
 
 ## How it satisfies the bounty brief
 

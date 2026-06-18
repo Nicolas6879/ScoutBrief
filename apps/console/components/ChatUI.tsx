@@ -5,6 +5,7 @@ import { runAgentStream } from '@/lib/sseClient'
 import type { BriefStep, DoneEvent, LaneEvent, LaneKey } from '@/lib/types'
 import { PolicyLanes } from './PolicyLanes'
 import { HashScanLink, HcsTopicLink } from './HashScanLink'
+import { BriefRenderer } from './BriefRenderer'
 
 interface StepEntry {
   step: BriefStep
@@ -56,7 +57,8 @@ export function ChatUI(): React.ReactElement {
               Scout<span className="text-[color:var(--color-accent)]">Brief</span>
             </h1>
             <p className="text-sm text-[color:var(--color-muted)] mt-1">
-              Hedera Policy Agent · buys real APIs in HBAR with constraints enforced on every transfer
+              Reference implementation of the Hedera Agent Kit V4 Hooks &amp; Policies pattern
+              · spend caps · counterparty allowlists · contextual approval · on-chain audit
             </p>
           </div>
           <div className="flex gap-3 text-xs text-[color:var(--color-muted)]">
@@ -104,16 +106,20 @@ export function ChatUI(): React.ReactElement {
               {running ? 'Brief in flight…' : 'Buy brief (≈ 0.05 HBAR)'}
             </button>
             <div className="text-[11px] text-[color:var(--color-muted)] leading-relaxed">
-              The agent will charge 0.05 HBAR to an escrow account, search Tavily, synthesize via Groq
-              (Llama 3.3 70b) or Gemini fallback, deliver via Resend, then release the escrow — all
-              under the V4 policy chain visible on the right.
+              The agent charges 0.05 HBAR to an escrow account, searches Tavily, synthesizes via Groq
+              (Llama 3.3 70b) or Gemini fallback, then releases the escrow — every transfer is gated
+              by the V4 policies on the right. The synthesized brief renders below; email delivery is
+              best-effort (Resend free tier delivers only to the verified owner&apos;s inbox).
             </div>
           </div>
 
           <StepsFeed steps={steps} />
 
           {done && (
-            <ResultPanel done={done} steps={steps} />
+            <>
+              <ResultPanel done={done} steps={steps} />
+              {done.briefMarkdown && <BriefInlinePanel markdown={done.briefMarkdown} />}
+            </>
           )}
           {error && (
             <div className="mt-4 rounded-md border border-[color:var(--color-blocked)]/40 bg-[color:var(--color-blocked)]/10 p-3 text-sm">
@@ -234,6 +240,12 @@ function StepLine({ entry }: { entry: StepEntry }): React.ReactElement {
           <strong>resend</strong> msg=<code>{s.messageId.slice(0, 8)}</code> · {s.ms}ms
         </span>
       )
+    case 'email_skipped':
+      return (
+        <span className="text-[color:var(--color-warn)]">
+          <strong>email</strong> skipped — {s.reason.slice(0, 140)}
+        </span>
+      )
     case 'release':
       return (
         <span className={s.ok ? 'text-[color:var(--color-ok)]' : 'text-[color:var(--color-blocked)]'}>
@@ -272,18 +284,26 @@ function StepLine({ entry }: { entry: StepEntry }): React.ReactElement {
 function ResultPanel({ done, steps }: { done: DoneEvent; steps: StepEntry[] }): React.ReactElement {
   const releaseStep = steps.find((s) => s.step.stage === 'release')
   const chargeStep = steps.find((s) => s.step.stage === 'charge')
+  const refundStep = steps.find((s) => s.step.stage === 'refund')
+  const emailSkipped = steps.some((s) => s.step.stage === 'email_skipped')
+
+  let title: string
+  let toneClass: string
+  if (!done.ok) {
+    title = '⊘ Brief blocked · funds refunded on-chain'
+    toneClass = 'border-[color:var(--color-blocked)]/40 bg-[color:var(--color-blocked)]/10 text-[color:var(--color-blocked)]'
+  } else if (emailSkipped) {
+    title = '✓ Brief synthesized · email skipped (sandbox)'
+    toneClass = 'border-[color:var(--color-warn)]/40 bg-[color:var(--color-warn)]/10 text-[color:var(--color-warn)]'
+  } else {
+    title = '✓ Brief delivered'
+    toneClass = 'border-[color:var(--color-ok)]/40 bg-[color:var(--color-ok)]/10 text-[color:var(--color-ok)]'
+  }
+
   return (
-    <div
-      className={`mt-4 rounded-md border p-3 text-sm ${
-        done.ok
-          ? 'border-[color:var(--color-ok)]/40 bg-[color:var(--color-ok)]/10'
-          : 'border-[color:var(--color-blocked)]/40 bg-[color:var(--color-blocked)]/10'
-      }`}
-    >
-      <div className={`font-semibold ${done.ok ? 'text-[color:var(--color-ok)]' : 'text-[color:var(--color-blocked)]'}`}>
-        {done.ok ? '✓ Brief delivered' : '⊘ Brief blocked'}
-      </div>
-      <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+    <div className={`mt-4 rounded-md border p-3 text-sm ${toneClass}`}>
+      <div className="font-semibold">{title}</div>
+      <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-[color:var(--color-text)]">
         <dt className="text-[color:var(--color-muted)]">request</dt>
         <dd className="font-mono">{done.requestId.slice(0, 12)}…</dd>
         {done.briefChars && (
@@ -301,7 +321,7 @@ function ResultPanel({ done, steps }: { done: DoneEvent; steps: StepEntry[] }): 
         {done.policyName && (
           <>
             <dt className="text-[color:var(--color-muted)]">blocked by</dt>
-            <dd className="text-[color:var(--color-blocked)]">{done.policyName}</dd>
+            <dd className="text-[color:var(--color-blocked)] font-semibold">{done.policyName}</dd>
           </>
         )}
       </dl>
@@ -312,7 +332,26 @@ function ResultPanel({ done, steps }: { done: DoneEvent; steps: StepEntry[] }): 
         {releaseStep?.step.stage === 'release' && releaseStep.step.txOutput && (
           <HashScanLink txOutput={releaseStep.step.txOutput} label="release tx" />
         )}
+        {refundStep?.step.stage === 'refund' && refundStep.step.txOutput && (
+          <HashScanLink txOutput={refundStep.step.txOutput} label="refund tx" />
+        )}
       </div>
+    </div>
+  )
+}
+
+function BriefInlinePanel({ markdown }: { markdown: string }): React.ReactElement {
+  return (
+    <div className="mt-4 rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-panel-2)] p-5">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-[color:var(--color-muted)]">
+          Brief delivered to screen
+        </h3>
+        <span className="text-[10px] text-[color:var(--color-muted)]">
+          synthesized from Tavily sources
+        </span>
+      </div>
+      <BriefRenderer markdown={markdown} />
     </div>
   )
 }
@@ -373,12 +412,16 @@ function mapStepsToLanes(entries: StepEntry[]): LaneEvent[] {
       case 'tavily':
       case 'synth':
       case 'resend':
+      case 'email_skipped':
         // These belong to the agent core action surface — not a Kit lifecycle
         // stage, but we surface them in the Post-Core lane for visual continuity.
         events.push({
           lane: 'post-core',
           status: 'active',
-          detail: `${step.stage} active`,
+          detail:
+            step.stage === 'email_skipped'
+              ? 'email skipped (sandbox)'
+              : `${step.stage} active`,
           timestamp: at,
         })
         break
