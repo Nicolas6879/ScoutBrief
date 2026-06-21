@@ -12,6 +12,7 @@
  * Fail-safe: if Mirror Node is unreachable, we BLOCK rather than allow — we
  * cannot guarantee safety without fresh data.
  */
+import { randomUUID } from 'node:crypto'
 import { AbstractPolicy } from '@hashgraph/hedera-agent-kit'
 import type { PostParamsNormalizationParams } from '@hashgraph/hedera-agent-kit'
 import { getLocalRolling24hSpend, logSpend } from '@scoutbrief/shared'
@@ -97,9 +98,14 @@ export class SpendLimitPolicy extends AbstractPolicy {
       return true
     }
 
-    // Log spend optimistically; reconciled with real receipt later via settlementHook
+    // Log spend with a UNIQUE id per brief so the rolling daily total accumulates.
+    // (Keying on the operator accountId collapsed every brief onto one row via
+    // INSERT OR REPLACE, freezing daily_used at a single brief's cost.) Prefer the
+    // requestId embedded in the transfer memo; fall back to a random id.
+    const paramsBlob = JSON.stringify(params.normalisedParams ?? params.rawParams ?? {})
+    const spendId = paramsBlob.match(/scoutbrief:charge:([\w-]+)/)?.[1] ?? randomUUID()
     logSpend({
-      requestId: params.context.accountId ?? 'unknown',
+      requestId: spendId,
       tinybars: transferTinybars,
       stage: 'planned',
     })
