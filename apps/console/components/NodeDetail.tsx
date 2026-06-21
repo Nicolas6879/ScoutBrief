@@ -2,10 +2,11 @@
 
 import { AnimatePresence, motion } from 'framer-motion'
 import { CheckCircle2, Circle, Loader2, Sparkles } from 'lucide-react'
-import { useTechnicalView } from '@/lib/hooks'
+import { useBudget, useTechnicalView } from '@/lib/hooks'
 import { nodeConfig } from '@/lib/pipeline'
 import type { PerAccountRun } from '@/lib/scoutRun'
-import type { PipelineNodeKey, PipelineNodeStatus } from '@/lib/types'
+import type { Budget, PipelineNodeKey, PipelineNodeStatus } from '@/lib/types'
+import { HashScanLink, HcsTopicLink } from './HashScanLink'
 
 interface Props {
   nodeKey: PipelineNodeKey
@@ -28,8 +29,31 @@ const STATUS_TONE: Record<PipelineNodeStatus, string> = {
   held: 'text-amber-300',
 }
 
+// The per-brief charge is a fixed amount on the agent (PER_BRIEF_HBAR).
+const PER_BRIEF_HBAR = 0.05
+
+function hbar(tinybars: number): string {
+  return (tinybars / 100_000_000).toFixed(2)
+}
+
+function txHref(tx?: string): string | undefined {
+  if (!tx) return undefined
+  if (tx.startsWith('http')) return tx
+  const base = process.env.NEXT_PUBLIC_HASHSCAN_BASE ?? 'https://hashscan.io/testnet'
+  const m = tx.match(/^(\d+\.\d+\.\d+)@(\d+)\.(\d+)$/)
+  if (m) return `${base}/transaction/${m[1]}-${m[2]}-${m[3]}`
+  return `${base}/transaction/${tx}`
+}
+
+interface Fact {
+  label: string
+  value: string
+  mono?: boolean
+}
+
 export function NodeDetail({ nodeKey, run }: Props): React.ReactElement {
   const { technical } = useTechnicalView()
+  const { budget } = useBudget()
   const cfg = nodeConfig(nodeKey)
   const state = run?.nodes[nodeKey]
   const status: PipelineNodeStatus = state?.status ?? 'idle'
@@ -41,6 +65,10 @@ export function NodeDetail({ nodeKey, run }: Props): React.ReactElement {
       : state?.startedAt && status === 'active'
         ? 'now'
         : null
+
+  const reached = status === 'ok' || status === 'active' || status === 'blocked' || status === 'held'
+  const facts = run && reached ? nodeFacts(nodeKey, run, budget, technical) : []
+  const links = run && reached ? nodeLinks(nodeKey, run) : null
 
   return (
     <div className="glass rounded-2xl p-5">
@@ -85,27 +113,140 @@ export function NodeDetail({ nodeKey, run }: Props): React.ReactElement {
                 : 'Hasn’t happened yet for this account.'}
             </p>
           )}
-          {run && status === 'active' && (
+
+          {facts.length > 0 && (
+            <dl className="space-y-2">
+              {facts.map((f) => (
+                <div key={f.label} className="flex items-baseline justify-between gap-3">
+                  <dt className="text-xs text-white/45">{f.label}</dt>
+                  <dd
+                    className={`text-right text-[13px] text-white/85 ${
+                      f.mono ? 'font-mono text-[12px]' : ''
+                    }`}
+                  >
+                    {f.value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
+
+          {run && status === 'blocked' && (
+            <p className="mt-3 text-sm text-rose-200/85">
+              {run.blockedReason ?? 'A policy stopped this step.'}
+            </p>
+          )}
+          {run && status === 'active' && facts.length === 0 && (
             <p className="text-sm text-violet-200/80">
               <Sparkles size={12} className="-mt-0.5 mr-1 inline" />
               Running this step now…
             </p>
           )}
-          {run && status === 'ok' && (
-            <p className="text-sm text-emerald-200/85">
-              <CheckCircle2 size={12} className="-mt-0.5 mr-1 inline" />
-              Done.
-            </p>
-          )}
-          {run && status === 'blocked' && (
-            <p className="text-sm text-rose-200/85">
-              {run.blockedReason ?? 'A policy stopped this step.'}
-            </p>
-          )}
+
+          {links && <div className="mt-4 flex flex-wrap gap-4">{links}</div>}
         </motion.div>
       </AnimatePresence>
     </div>
   )
+}
+
+function nodeFacts(
+  nodeKey: PipelineNodeKey,
+  run: PerAccountRun,
+  budget: Budget | null,
+  technical: boolean,
+): Fact[] {
+  switch (nodeKey) {
+    case 'request':
+      return [{ label: 'Scout depth', value: run.depth ?? '—' }]
+
+    case 'counterparty':
+      return [
+        {
+          label: technical ? 'Allowlisted endpoints' : 'Approved vendors',
+          value: 'Tavily · Groq · Gemini',
+        },
+        { label: 'Allowlist check', value: 'passed' },
+      ]
+
+    case 'charge': {
+      const facts: Fact[] = [
+        { label: 'Held in escrow', value: `${PER_BRIEF_HBAR.toFixed(2)} HBAR` },
+      ]
+      if (technical) facts.push({ label: 'Audit hook', value: 'HcsAuditTrailHook' })
+      return facts
+    }
+
+    case 'spend': {
+      const facts: Fact[] = [{ label: 'This run', value: `${PER_BRIEF_HBAR.toFixed(2)} HBAR` }]
+      if (budget) {
+        facts.push({
+          label: 'Per-brief cap',
+          value: `${hbar(budget.per_brief_limit_tinybars)} HBAR`,
+        })
+        facts.push({
+          label: 'Daily used',
+          value: `${hbar(budget.daily_used_tinybars)} / ${hbar(budget.daily_limit_tinybars)} HBAR`,
+        })
+      }
+      facts.push({
+        label: 'Verdict',
+        value: run.nodes.spend?.status === 'blocked' ? 'over cap' : '✓ within limits',
+      })
+      return facts
+    }
+
+    case 'research': {
+      const facts: Fact[] = []
+      if (run.sources)
+        facts.push({
+          label: technical ? 'Tavily results' : 'Sources found',
+          value: `${run.sources.count} · ${run.sources.ms}ms`,
+        })
+      if (run.synth)
+        facts.push({
+          label: technical ? 'LLM synthesis' : 'Brief written',
+          value: `${run.synth.provider} · ${run.synth.chars.toLocaleString()} chars · ${run.synth.ms}ms`,
+        })
+      return facts
+    }
+
+    case 'approval':
+      return [
+        {
+          label: 'Settlement',
+          value: run.refundTx ? 'refunded to operator' : 'released to operator',
+        },
+        { label: 'Amount', value: `${PER_BRIEF_HBAR.toFixed(2)} HBAR` },
+      ]
+
+    case 'audit': {
+      const facts: Fact[] = []
+      if (run.auditTopic) facts.push({ label: 'Audit topic', value: run.auditTopic, mono: true })
+      facts.push({ label: 'Events recorded', value: String(run.auditRefs?.length ?? 0) })
+      return facts
+    }
+
+    default:
+      return []
+  }
+}
+
+function nodeLinks(nodeKey: PipelineNodeKey, run: PerAccountRun): React.ReactNode {
+  switch (nodeKey) {
+    case 'charge':
+      return <HashScanLink txOutput={txHref(run.chargeTx)} label="Charge receipt" />
+    case 'approval':
+      return run.refundTx ? (
+        <HashScanLink txOutput={txHref(run.refundTx)} label="Refund receipt" />
+      ) : (
+        <HashScanLink txOutput={txHref(run.releaseTx)} label="Payment receipt" />
+      )
+    case 'audit':
+      return <HcsTopicLink topicId={run.auditTopic} label="HCS audit trail" />
+    default:
+      return null
+  }
 }
 
 function StatusPill({ status }: { status: PipelineNodeStatus }): React.ReactElement {

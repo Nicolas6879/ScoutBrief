@@ -38,6 +38,11 @@ export interface PerAccountRun {
   releaseTx?: string
   refundTx?: string
   auditTopic?: string
+  // Structured per-node facts surfaced in NodeDetail
+  depth?: 'lite' | 'standard' | 'deep'
+  sources?: { count: number; ms: number }
+  synth?: { provider: 'groq' | 'gemini'; chars: number; ms: number }
+  auditRefs?: string[]
 }
 
 export interface ScoutBatchState {
@@ -104,6 +109,7 @@ function pushDecision(
 function applyStep(run: PerAccountRun, step: BriefStep): void {
   switch (step.stage) {
     case 'decision':
+      run.depth = step.depth
       setNode(run, 'request', 'ok')
       setNode(run, 'counterparty', 'active')
       pushDecision(run, {
@@ -119,6 +125,8 @@ function applyStep(run: PerAccountRun, step: BriefStep): void {
         // chain already passed: CounterpartyAllowlistPolicy AND SpendLimitPolicy.
         // Mark all three settled and hand off to the web-research phase so a
         // later failure (e.g. Tavily) is attributed to the right node.
+        const chargeTxId = step.txOutput?.match(/0\.0\.\d+@\d+\.\d+/)?.[0]
+        if (chargeTxId) run.chargeTx = chargeTxId
         setNode(run, 'counterparty', 'ok')
         setNode(run, 'charge', 'ok')
         setNode(run, 'spend', 'ok')
@@ -149,6 +157,7 @@ function applyStep(run: PerAccountRun, step: BriefStep): void {
       break
 
     case 'tavily':
+      run.sources = { count: step.count, ms: step.ms }
       setNode(run, 'spend', 'ok')
       setNode(run, 'research', 'active')
       pushDecision(run, {
@@ -160,6 +169,7 @@ function applyStep(run: PerAccountRun, step: BriefStep): void {
 
     case 'synth':
       // LLM finished writing — research is done, approval phase starts
+      run.synth = { provider: step.provider, chars: step.chars, ms: step.ms }
       setNode(run, 'research', 'ok')
       setNode(run, 'approval', 'active')
       pushDecision(run, {
@@ -209,6 +219,7 @@ function applyStep(run: PerAccountRun, step: BriefStep): void {
       // We optimistically mark it ok on every audit event; the runDone hook
       // can correct if needed.
       run.auditTopic = step.topic
+      run.auditRefs = [...(run.auditRefs ?? []), step.ref]
       if (statusOf('audit', run) === 'active') {
         setNode(run, 'audit', 'ok')
       }
