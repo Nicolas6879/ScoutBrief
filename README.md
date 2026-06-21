@@ -2,9 +2,7 @@
 
 > **Reference implementation of the Hedera Agent Kit V4 Hooks & Policies pattern.** Spend caps, counterparty allowlists, contextual approval, and on-chain audit — applied to a persistent account-intelligence dashboard that purchases real third-party APIs in HBAR.
 
-**Hedera AI Bounty Week 5 submission** — *Hedera Policy Agent*
-
-[Demo URL (pending deploy)](#) · [Live HCS audit topic](https://hashscan.io/testnet/topic/0.0.9261411) · [Policy manifest topic](https://hashscan.io/testnet/topic/0.0.9261410)
+[Live HCS audit topic](https://hashscan.io/testnet/topic/0.0.9261411) · [Policy manifest topic](https://hashscan.io/testnet/topic/0.0.9261410)
 
 ---
 
@@ -21,9 +19,9 @@ ScoutBrief is an **account-intelligence dashboard** with on-chain governance for
 
 **What makes this real:** the Policy chain is genuinely load-bearing. Without `SpendLimitPolicy`, the escrow drains on every run unchecked. Without `CounterpartyAllowlistPolicy`, any vendor URL could be swapped in. Without `ContextualApprovalPolicy`, settlement happens before the brief has been synthesized. The policies are not decorators — they are the gate.
 
-## How it satisfies the bounty brief
+## Policy & payment design
 
-| Brief requirement | Implementation |
+| Capability | Implementation |
 |---|---|
 | Hooks AND Policies | 1 built-in non-blocking hook (`HcsAuditTrailHook`) + 3 custom blocking policies (each extends the Kit's `AbstractPolicy`/`AbstractHook`), all registered in the toolkit `hooks` array |
 | Spend limits | `SpendLimitPolicy` (Post-Param-Norm) — per-brief cap + rolling 24h cap, re-fetches live escrow balance before each run |
@@ -92,16 +90,6 @@ pnpm -F @scoutbrief/console dev  # Next.js dashboard on :3000
 ```
 
 Then open http://localhost:3000, add a company name to the watchlist, check it, and click Scout.
-
-## Demo
-
-See [DEMO.md](./DEMO.md) for the 3-minute walkthrough script + what to look for in each pipeline step.
-
-## Submission
-
-- **Bounty:** Hedera AI Bounty — Week 5 (Policy Agent)
-- **Deadline:** 2026-06-21 23:59 UTC
-- **Repository:** All code written during the hackathon window. Prior project [HIVE Protocol](https://github.com/Nicolas6879/HIVE) (ETHDenver on-chain automation winner) is referenced as credential only and shares no code.
 
 ## License
 
