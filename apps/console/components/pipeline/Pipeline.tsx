@@ -136,6 +136,10 @@ export function Pipeline({
           edges={edges}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
+          // Defining onNodeClick makes React Flow keep pointer-events on the node
+          // wrappers (otherwise non-selectable + non-draggable nodes get
+          // pointer-events:none and clicks never reach the card).
+          onNodeClick={(_, node) => onSelect(node.id as PipelineNodeKey)}
           // Nodes are sized to fill the container at zoom=1 — no fitView compression
           fitView={false}
           defaultViewport={{ x: 0, y: 0, zoom: 1 }}
