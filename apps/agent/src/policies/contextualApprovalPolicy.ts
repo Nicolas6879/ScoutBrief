@@ -6,9 +6,9 @@
  * Side-effect: creates a SETTLEMENT HOLD row in SQLite for transfers FROM
  * escrow to the operator (i.e., releases). The hold expires after
  * SETTLEMENT_HOLD_MINUTES and is resolved by either:
- *   - Resend webhook reports successful delivery → release proceeds
- *   - Resend webhook reports bounce → refund the buyer instead
- *   - Timer expires without webhook → default to release (optimistic)
+ *   - Downstream success signal → release proceeds
+ *   - Downstream failure / timeout → refund the buyer instead
+ *   - Timer expires without signal → default to release (optimistic)
  *
  * The policy itself never BLOCKS in the normal path; "approval" is enforced
  * asynchronously via the hold state machine. Exception: refuses to allow
@@ -74,7 +74,8 @@ export class ContextualApprovalPolicy extends AbstractPolicy {
       return true
     }
 
-    // Record the hold; release/refund decision is async (see Resend webhook).
+    // Record the hold; release/refund decision is resolved by the orchestrator
+    // (success → release, failure → refund) or expires to release after timeout.
     const nonce = randomUUID()
     try {
       createHold({

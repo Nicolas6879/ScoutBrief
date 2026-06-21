@@ -10,17 +10,16 @@ export type SSEMessage = {
 }
 
 interface RunOptions {
+  path: string
   body: unknown
   signal?: AbortSignal
   onMessage: (msg: SSEMessage) => void
   onError?: (err: Error) => void
 }
 
-const STREAM_PATH = '/agent/stream'
-
-export async function runAgentStream(opts: RunOptions): Promise<void> {
+export async function streamPost(opts: RunOptions): Promise<void> {
   const base = process.env.NEXT_PUBLIC_AGENT_API_URL ?? ''
-  const url = `${base}${STREAM_PATH}`
+  const url = `${base}${opts.path}`
 
   let response: Response
   try {
@@ -50,7 +49,6 @@ export async function runAgentStream(opts: RunOptions): Promise<void> {
       if (done) break
       buffer += decoder.decode(value, { stream: true })
 
-      // SSE events are separated by blank lines.
       let sep = buffer.indexOf('\n\n')
       while (sep !== -1) {
         const rawEvent = buffer.slice(0, sep)

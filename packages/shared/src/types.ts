@@ -5,7 +5,10 @@ export type BriefDepth = z.infer<typeof BriefDepth>
 
 export const BriefRequestSchema = z.object({
   topic: z.string().min(1).max(120),
-  email: z.string().email(),
+  accountName: z.string().min(1).max(120).optional(),
+  accountId: z.string().min(1).max(64).optional(),
+  runId: z.string().uuid().optional(),
+  batchId: z.string().uuid().optional(),
   requestId: z.string().uuid().optional(),
 })
 export type BriefRequest = z.infer<typeof BriefRequestSchema>

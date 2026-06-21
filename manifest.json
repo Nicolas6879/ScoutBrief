@@ -1,7 +1,7 @@
 {
   "name": "ScoutBrief",
   "version": "1.0.0",
-  "description": "Reference implementation of the Hedera Agent Kit V4 Hooks & Policies pattern: spend caps, counterparty allowlists, contextual approval, and HCS-2 audit applied to a demo agent that buys real third-party APIs in HBAR. Fork the pattern for multi-tenant SaaS budget governance, regulated agent workflows, or A2A marketplaces.",
+  "description": "Reference implementation of the Hedera Agent Kit V4 Hooks & Policies pattern: spend caps, counterparty allowlists, contextual approval, and HCS-2 audit applied to a persistent account-intelligence dashboard. The agent purchases Tavily, Groq, and Gemini in HBAR for each account brief; a 7-node visual policy pipeline streams every decision live. Fork the pattern for multi-tenant SaaS budget governance, regulated agent workflows, or A2A marketplaces.",
   "author": { "name": "Nicolas", "github": "Nicolas6879" },
   "endpoints": {
     "demo": "https://scoutbrief.vercel.app",
@@ -11,9 +11,9 @@
   },
   "hederaAgentKit": { "version": "4.x", "language": "javascript" },
   "policies": {
-    "manifestTopicId": "TBD",
-    "auditTopicId": "TBD",
-    "hooks": ["auditLogHook", "settlementHook"],
+    "manifestTopicId": "0.0.9261410",
+    "auditTopicId": "0.0.9261411",
+    "hooks": ["hcsAuditTrailHook"],
     "policies": [
       "counterpartyAllowlistPolicy",
       "spendLimitPolicy",
@@ -24,7 +24,7 @@
   "payments": {
     "currencies": ["HBAR"],
     "network": "hedera-testnet",
-    "x402Facilitator": "https://scoutbrief.fly.dev/x402"
+    "settlement": "operator → escrow on charge; escrow → operator on release; escrow → operator on refund (escrow-key-signed)"
   },
   "thirdPartyServices": [
     {
@@ -33,9 +33,14 @@
       "purpose": "web research"
     },
     {
-      "name": "Resend",
-      "endpoint": "https://api.resend.com/emails",
-      "purpose": "email delivery"
+      "name": "Groq",
+      "endpoint": "https://api.groq.com/openai/v1/chat/completions",
+      "purpose": "LLM synthesis (primary)"
+    },
+    {
+      "name": "Google Gemini",
+      "endpoint": "https://generativelanguage.googleapis.com",
+      "purpose": "LLM synthesis (fallback)"
     }
   ],
   "llm": {

@@ -1,33 +1,39 @@
 /**
- * BuyBriefTool — orchestrates a single brief delivery end-to-end.
+ * BuyBriefTool — orchestrates a single account scout end-to-end.
  *
  * Flow:
- *   1. Validate inputs + per-email rate check (tool-layer, not kit-layer)
- *   2. Autonomous decision: pick brief depth (lite/standard/deep) from topic ambiguity
- *   3. CHARGE: transfer 0.05 HBAR operator → escrow via kit (4-stage lifecycle fires)
- *   4. TAVILY: search the topic with the chosen depth
- *   5. LLM: synthesize markdown via Groq (Gemini fallback)
- *   6. RESEND: email the brief to the requested address
- *   7. RELEASE (success) OR REFUND (failure): transfer back from escrow
- *   8. Audit each step into HCS audit topic
+ *   1. Autonomous decision: pick brief depth (lite/standard/deep) from topic ambiguity
+ *   2. CHARGE: transfer 0.05 HBAR operator → escrow via kit (4-stage lifecycle fires)
+ *   3. TAVILY: search the topic with the chosen depth
+ *   4. LLM: synthesize markdown via Groq (Gemini fallback)
+ *   5. RELEASE (success) OR REFUND (failure): transfer back from escrow
+ *   6. Audit each step into HCS audit topic
  *
- * Returns a structured BriefResult emitted to the caller (SSE feed in M3).
+ * Returns a structured BriefResult with the synthesized brief markdown.
+ * The dashboard surfaces it inline — no email side-channel.
  */
 import { randomUUID } from 'node:crypto'
 import { tavilySearch } from '../services/tavily.js'
 import { synthesizeBrief } from '../services/llmRouter.js'
-import { sendBriefEmail } from '../services/resend.js'
 import { writeAuditEvent } from '../services/hcsAudit.js'
 import { transferHbarViaKit } from '../agent.js'
 import { escrowRefund, escrowRelease, type EscrowTransferResult } from '../hedera/escrow.js'
-import { getLocalRolling24hSpend } from '@scoutbrief/shared'
+import {
+  getLocalRolling24hSpend,
+  logDecision,
+  finalizeRun,
+  touchAccount,
+} from '@scoutbrief/shared'
 import crypto from 'node:crypto'
 
 const PER_BRIEF_HBAR = 0.05 // 5,000,000 tinybars — under the 50M per-brief cap
 
 export interface BriefInput {
   topic: string
-  email: string
+  accountName?: string
+  accountId?: string
+  runId?: string
+  batchId?: string
   requestId?: string
 }
 
@@ -36,8 +42,6 @@ export type BriefStep =
   | { stage: 'charge'; ok: boolean; txOutput?: string; reason?: string }
   | { stage: 'tavily'; count: number; ms: number }
   | { stage: 'synth'; provider: 'groq' | 'gemini'; chars: number; ms: number }
-  | { stage: 'resend'; messageId: string; ms: number }
-  | { stage: 'email_skipped'; reason: string }
   | { stage: 'release'; ok: boolean; txOutput?: string; reason?: string }
   | { stage: 'refund'; ok: boolean; txOutput?: string; reason?: string }
   | { stage: 'audit'; topic: string; ref: string }
@@ -46,25 +50,160 @@ export type BriefStep =
 
 export interface BriefResult {
   requestId: string
+  runId?: string
+  accountId?: string
   ok: boolean
   steps: BriefStep[]
   briefMarkdown?: string
-  emailMessageId?: string
   policyName?: string
   reason?: string
 }
 
 export interface BuyBriefOptions {
-  /** Optional callback for streaming step events (used by SSE endpoint in M3). */
+  /** Optional callback for streaming step events (used by SSE endpoint). */
   onStep?: (step: BriefStep) => void
+}
+
+const PER_BRIEF_TINYBARS = Math.round(PER_BRIEF_HBAR * 100_000_000)
+
+interface DecisionPersistInput {
+  runId: string
+  accountId: string
+}
+
+function persistDecision(
+  ctx: DecisionPersistInput | null,
+  step: BriefStep,
+): void {
+  if (!ctx) return
+  const id = randomUUID()
+  try {
+    switch (step.stage) {
+      case 'decision':
+        logDecision({
+          id,
+          runId: ctx.runId,
+          accountId: ctx.accountId,
+          stage: 'decision',
+          status: 'info',
+          detail: { depth: step.depth, reason: step.reason },
+        })
+        break
+      case 'charge':
+        logDecision({
+          id,
+          runId: ctx.runId,
+          accountId: ctx.accountId,
+          stage: 'charge',
+          status: step.ok ? 'ok' : 'blocked',
+          policyName: 'CounterpartyAllowlistPolicy',
+          hookName: 'HcsAuditTrailHook',
+          detail: { ok: step.ok, reason: step.reason, txOutput: step.txOutput?.slice(0, 200) },
+          txId: extractTxId(step.txOutput),
+        })
+        break
+      case 'tavily':
+        logDecision({
+          id,
+          runId: ctx.runId,
+          accountId: ctx.accountId,
+          stage: 'tavily',
+          status: 'ok',
+          detail: { count: step.count, ms: step.ms },
+        })
+        break
+      case 'synth':
+        logDecision({
+          id,
+          runId: ctx.runId,
+          accountId: ctx.accountId,
+          stage: 'synth',
+          status: 'ok',
+          detail: { provider: step.provider, chars: step.chars, ms: step.ms },
+        })
+        break
+      case 'release':
+        logDecision({
+          id,
+          runId: ctx.runId,
+          accountId: ctx.accountId,
+          stage: 'release',
+          status: step.ok ? 'ok' : 'blocked',
+          policyName: 'ContextualApprovalPolicy',
+          detail: { ok: step.ok, reason: step.reason, txOutput: step.txOutput },
+          txId: extractTxId(step.txOutput),
+        })
+        break
+      case 'refund':
+        logDecision({
+          id,
+          runId: ctx.runId,
+          accountId: ctx.accountId,
+          stage: 'refund',
+          status: 'ok',
+          detail: { ok: step.ok, reason: step.reason, txOutput: step.txOutput },
+          txId: extractTxId(step.txOutput),
+        })
+        break
+      case 'audit':
+        logDecision({
+          id,
+          runId: ctx.runId,
+          accountId: ctx.accountId,
+          stage: 'audit',
+          status: 'info',
+          hookName: 'HcsAuditTrailHook',
+          detail: { topic: step.topic, ref: step.ref },
+          hcsRef: step.ref,
+        })
+        break
+      case 'blocked':
+        logDecision({
+          id,
+          runId: ctx.runId,
+          accountId: ctx.accountId,
+          stage: 'blocked',
+          status: 'blocked',
+          policyName: step.policyName ?? null,
+          detail: { reason: step.reason },
+        })
+        break
+      case 'error':
+        logDecision({
+          id,
+          runId: ctx.runId,
+          accountId: ctx.accountId,
+          stage: 'error',
+          status: 'blocked',
+          detail: { reason: step.reason },
+        })
+        break
+    }
+  } catch (err) {
+    console.error('[persistDecision] failed:', err)
+  }
+}
+
+function extractTxId(txOutput?: string): string | null {
+  if (!txOutput) return null
+  const direct = txOutput.match(/\d+\.\d+\.\d+@\d+\.\d+/)
+  if (direct && direct[0]) return direct[0]
+  const fromUrl = txOutput.match(/transaction\/([^/?#]+)/)
+  if (fromUrl && fromUrl[1]) return fromUrl[1]
+  return null
 }
 
 export async function buyBrief(input: BriefInput, opts: BuyBriefOptions = {}): Promise<BriefResult> {
   const requestId = input.requestId ?? randomUUID()
   const steps: BriefStep[] = []
+  const persistCtx: DecisionPersistInput | null =
+    input.runId && input.accountId
+      ? { runId: input.runId, accountId: input.accountId }
+      : null
   const emit = (s: BriefStep): void => {
     steps.push(s)
     opts.onStep?.(s)
+    persistDecision(persistCtx, s)
   }
   const operatorIdRaw = process.env.HEDERA_OPERATOR_ID
   const escrowIdRaw = process.env.HEDERA_ESCROW_ID
@@ -84,6 +223,9 @@ export async function buyBrief(input: BriefInput, opts: BuyBriefOptions = {}): P
     )
   }
 
+  const accountTag = input.accountName ?? input.topic
+  const accountHash = sha(accountTag)
+
   // 1. Autonomous decision: depth
   const depth = decideDepth(input.topic)
   emit({
@@ -97,7 +239,14 @@ export async function buyBrief(input: BriefInput, opts: BuyBriefOptions = {}): P
     writeAuditEvent({
       eventType: 'intent_logged',
       requestId,
-      params: { topic: input.topic, depth, email_hash: sha(input.email) },
+      params: {
+        topic: input.topic,
+        depth,
+        account_hash: accountHash,
+        account_id: input.accountId ?? null,
+        run_id: input.runId ?? null,
+        batch_id: input.batchId ?? null,
+      },
       decisionTrace: `depth=${depth}`,
     }),
     'intent',
@@ -122,8 +271,20 @@ export async function buyBrief(input: BriefInput, opts: BuyBriefOptions = {}): P
       policyName: charge.policyName,
       reason: charge.reason ?? 'charge denied',
     })
+    if (persistCtx) {
+      finalizeRun({
+        id: persistCtx.runId,
+        status: 'blocked',
+        blockedPolicy: charge.policyName ?? null,
+        blockedReason: charge.reason ?? 'charge denied',
+        costTinybars: 0,
+      })
+      touchAccount(persistCtx.accountId, 'blocked')
+    }
     return {
       requestId,
+      runId: input.runId,
+      accountId: input.accountId,
       ok: false,
       steps,
       policyName: charge.policyName,
@@ -157,25 +318,7 @@ export async function buyBrief(input: BriefInput, opts: BuyBriefOptions = {}): P
     return await fail(err, 'synth failed')
   }
 
-  // 5. RESEND — graceful skip when domain not verified (still returns brief inline)
-  let emailMessageId: string | undefined
-  try {
-    const outcome = await sendBriefEmail({
-      to: input.email,
-      topic: input.topic,
-      markdown: brief.text,
-    })
-    if (outcome.delivered) {
-      emailMessageId = outcome.messageId
-      emit({ stage: 'resend', messageId: outcome.messageId, ms: outcome.ms })
-    } else {
-      emit({ stage: 'email_skipped', reason: outcome.reason })
-    }
-  } catch (err) {
-    return await fail(err, 'resend failed')
-  }
-
-  // 6. RELEASE escrow → operator (real on-chain HBAR transfer, signed by escrow key)
+  // 5. RELEASE escrow → operator (real on-chain HBAR transfer, signed by escrow key)
   const release = await escrowRelease({
     toAccountId: operatorId,
     hbar: PER_BRIEF_HBAR,
@@ -205,7 +348,7 @@ export async function buyBrief(input: BriefInput, opts: BuyBriefOptions = {}): P
     )
   }
 
-  // 7. Final audit event
+  // 6. Final audit event
   queueAudit(
     writeAuditEvent({
       eventType: 'decision_complete',
@@ -213,10 +356,10 @@ export async function buyBrief(input: BriefInput, opts: BuyBriefOptions = {}): P
       params: {
         topic: input.topic,
         depth,
-        email_hash: sha(input.email),
+        account_hash: accountHash,
+        account_id: input.accountId ?? null,
         provider: brief.provider,
         brief_chars: brief.text.length,
-        resend_message_id: emailMessageId ?? 'skipped',
         local_24h_spend_tinybars: getLocalRolling24hSpend(),
       },
     }),
@@ -228,12 +371,30 @@ export async function buyBrief(input: BriefInput, opts: BuyBriefOptions = {}): P
   // before we surface the result to the caller (or close the process).
   await Promise.allSettled(auditPromises)
 
+  if (persistCtx) {
+    const chargeTx = extractTxId(steps.find((s) => s.stage === 'charge')?.txOutput)
+    const releaseTx = extractTxId(steps.find((s) => s.stage === 'release')?.txOutput)
+    const auditStep = steps.find((s) => s.stage === 'audit')
+    finalizeRun({
+      id: persistCtx.runId,
+      status: 'ok',
+      costTinybars: PER_BRIEF_TINYBARS,
+      briefMarkdown: brief.text,
+      chargeTx,
+      releaseTx,
+      auditTopic: auditStep?.topic ?? null,
+      auditConsensus: auditStep?.ref ?? null,
+    })
+    touchAccount(persistCtx.accountId, 'ok')
+  }
+
   return {
     requestId,
+    runId: input.runId,
+    accountId: input.accountId,
     ok: true,
     steps,
     briefMarkdown: brief.text,
-    emailMessageId,
   }
 
   /** Internal failure handler: refund the charge, return structured result. */
@@ -270,7 +431,29 @@ export async function buyBrief(input: BriefInput, opts: BuyBriefOptions = {}): P
     )
 
     await Promise.allSettled(auditPromises)
-    return { requestId, ok: false, steps, reason }
+
+    if (persistCtx) {
+      const refundTx = extractTxId(steps.find((s) => s.stage === 'refund')?.txOutput)
+      const chargeTx = extractTxId(steps.find((s) => s.stage === 'charge')?.txOutput)
+      finalizeRun({
+        id: persistCtx.runId,
+        status: refundTx ? 'refunded' : 'error',
+        blockedReason: reason.slice(0, 240),
+        costTinybars: 0,
+        chargeTx,
+        refundTx,
+      })
+      touchAccount(persistCtx.accountId, refundTx ? 'refunded' : 'blocked')
+    }
+
+    return {
+      requestId,
+      runId: input.runId,
+      accountId: input.accountId,
+      ok: false,
+      steps,
+      reason,
+    }
   }
 }
 

@@ -10,7 +10,6 @@ import { createHash } from 'crypto'
 
 const ENDPOINTS = {
   TAVILY_ENDPOINT_HASH: 'https://api.tavily.com/search',
-  RESEND_ENDPOINT_HASH: 'https://api.resend.com/emails',
   GROQ_ENDPOINT_HASH: 'https://api.groq.com/openai/v1/chat/completions',
   GEMINI_ENDPOINT_HASH:
     'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',

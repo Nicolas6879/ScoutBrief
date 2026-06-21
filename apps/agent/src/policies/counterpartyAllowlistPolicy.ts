@@ -6,10 +6,10 @@
  * Blocks HBAR transfers whose recipient is NOT in our allowlist (escrow + operator),
  * and rate-limits transfers TO the operator (anti-spam — at most N per day per recipient).
  *
- * The "endpoint allowlist" semantics that apply to Tavily/Resend live in the
- * BuyBriefTool itself: the tool only calls those two endpoints, so the
- * counterparty restriction at the HBAR layer enforces "agent can only move money
- * to/from accounts we trust."
+ * The "endpoint allowlist" semantics that apply to Tavily/Groq/Gemini live in the
+ * BuyBriefTool itself: the tool only calls those endpoints, so the counterparty
+ * restriction at the HBAR layer enforces "agent can only move money to/from
+ * accounts we trust."
  */
 import { AbstractPolicy } from '@hashgraph/hedera-agent-kit'
 import type {

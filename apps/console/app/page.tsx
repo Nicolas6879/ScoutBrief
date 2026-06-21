@@ -1,5 +1,5 @@
-import { ChatUI } from '@/components/ChatUI'
+import { Dashboard } from '@/components/Dashboard'
 
 export default function Page(): React.ReactElement {
-  return <ChatUI />
+  return <Dashboard />
 }
